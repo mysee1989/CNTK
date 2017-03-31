@@ -67,13 +67,9 @@ void Indexer::BuildFromLines()
         m_pos = (char*)memchr(m_pos, ROW_DELIMITER, m_bufferEnd - m_pos);
         if (m_pos)
         {
-            SequenceDescriptor sd = {};
-            sd.m_numberOfSamples = 1;
-            sd.m_fileOffsetBytes = offset;
+            auto sequenceOffset = offset;
             offset = GetFileOffset() + 1;
-            sd.m_byteSize = offset - sd.m_fileOffsetBytes;
-            sd.m_key.m_sequence = lines;
-            m_index.AddSequence(sd);
+            m_index.AddSequence(SequenceDescriptor{ KeyType{ lines, 0 }, 1 }, sequenceOffset, offset);
             ++m_pos;
             ++lines;
         }
@@ -87,12 +83,7 @@ void Indexer::BuildFromLines()
     {
         // There's a number of characters, not terminated by a newline,
         // add a sequence to the index, parser will have to deal with it.
-        SequenceDescriptor sd = {};
-        sd.m_numberOfSamples = 1;
-        sd.m_fileOffsetBytes = offset;
-        sd.m_byteSize = m_fileOffsetEnd - sd.m_fileOffsetBytes;
-        sd.m_key.m_sequence = lines;
-        m_index.AddSequence(sd);
+        m_index.AddSequence(SequenceDescriptor{ KeyType{ lines, 0 }, 1 }, offset, m_fileOffsetEnd);
     }
 }
 
@@ -149,33 +140,28 @@ void Indexer::Build(CorpusDescriptorPtr corpus)
         RuntimeError("Expected a sequence id at the offset %" PRIi64 ", none was found.", offset);
     }
 
-    SequenceDescriptor sd = {};
-    sd.m_fileOffsetBytes = offset;
-
+    auto sequenceOffset = offset;
     size_t previousId = id;
+    uint32_t numberOfSamples = 0;
     while (!m_done)
     {
         SkipLine(); // ignore whatever is left on this line.
         offset = GetFileOffset(); // a new line starts at this offset;
-        sd.m_numberOfSamples++;
+        numberOfSamples++;
 
         if (!m_done && tryGetSequenceId(id) && id != previousId)
         {
             // found a new sequence, which starts at the [offset] bytes into the file
-            sd.m_byteSize = offset - sd.m_fileOffsetBytes;
-            sd.m_key.m_sequence = previousId;
-            m_index.AddSequence(sd);
+            // adding the previous one to the index.
+            m_index.AddSequence(SequenceDescriptor{ KeyType { previousId, 0}, numberOfSamples }, sequenceOffset, offset);
 
-            sd = {};
-            sd.m_fileOffsetBytes = offset;
+            sequenceOffset = offset;
             previousId = id;
+            numberOfSamples = 0;
         }
     }
 
-    // calculate the byte size for the last sequence
-    sd.m_byteSize = m_fileOffsetEnd - sd.m_fileOffsetBytes;
-    sd.m_key.m_sequence = previousId;
-    m_index.AddSequence(sd);
+    m_index.AddSequence(SequenceDescriptor{ KeyType{ previousId, 0 }, numberOfSamples }, sequenceOffset, m_fileOffsetEnd);
 }
 
 void Indexer::SkipLine()
