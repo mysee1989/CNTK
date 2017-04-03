@@ -15,7 +15,7 @@ from generate_anchors import generate_anchors
 from fast_rcnn.bbox_transform import bbox_transform_inv, clip_boxes
 from fast_rcnn.nms_wrapper import nms
 
-DEBUG = False
+DEBUG = True
 debug_fwd = True
 debug_bkw = True
 
@@ -57,6 +57,9 @@ class ProposalLayer(UserFunction):
 
         return [output_variable(proposalShape, self.inputs[0].dtype, self.inputs[0].dynamic_axes, needs_gradient=False)] # , name="rpn_rois"
 
+    # checked
+    # returns
+    # - pred_boxes (n, 4) as [x_low, y_low, x_high, y_high]
     def forward(self, arguments, device=None, outputs_to_retain=None):
         if debug_fwd: print("--> Entering forward in {}".format(self.name))
         # Algorithm:

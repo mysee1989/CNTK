@@ -38,7 +38,7 @@ from lib.rpn.cntk_ignore_label import IgnoreLabel
 ###############################################################
 ###############################################################
 make_mode = False
-graph_type = "png" # "png" or "pdf"
+graph_type = "pdf" # "png" or "pdf"
 
 # file and stream names
 map_filename_postfix = '.imgMap.txt'
@@ -228,6 +228,32 @@ def faster_rcnn_predictor(features, gt_boxes, n_classes):
     return cls_score, loss, pred_error
 
 
+def create_eval_model(model, image_input):
+    # modify Faster RCNN model by excluding target layers and losses
+    feature_node = find_by_name(model, "img_input")
+    conv_node = find_by_name(model, "conv5.y")
+    rpn_roi_node = find_by_name(model, "rpn_rois")
+    rpn_target_roi_node = find_by_name(model, "rpn_target_rois")
+    cls_score_node = find_by_name(model, "cls_score")
+    bbox_pred_node = find_by_name(model, "bbox_regr")
+
+    conv_rpn_layers = combine([conv_node.owner, rpn_roi_node.owner])\
+        .clone(CloneMethod.freeze, {feature_node: placeholder()})
+    roi_fc_layers = combine([cls_score_node.owner, bbox_pred_node.owner])\
+        .clone(CloneMethod.clone, {conv_node: placeholder(), rpn_target_roi_node: placeholder()})
+
+    conv_rpn_net = conv_rpn_layers(image_input)
+    conv_out = conv_rpn_net.outputs[0]
+    rpn_rois = conv_rpn_net.outputs[1]
+
+    pred_net = roi_fc_layers(conv_out, rpn_rois)
+    cls_score = pred_net.outputs[0]
+    bbox_regr = pred_net.outputs[1]
+
+    cls_pred = softmax(cls_score, axis=1, name='cls_pred')
+    return combine([cls_pred, rpn_rois, bbox_regr])
+
+
 # Trains a Faster R-CNN model
 def train_faster_rcnn(debug_output=False):
     if debug_output:
@@ -282,36 +308,12 @@ def train_faster_rcnn(debug_output=False):
 
 
 # Tests a Faster R-CNN model
-def eval_faster_rcnn(model):
+def eval_faster_rcnn(model, debug_output=False):
     image_input = input((num_channels, image_height, image_width), dynamic_axes=[Axis.default_batch_axis()], name='img_input')
+    frcn_eval = create_eval_model(model, image_input)
 
-    # modify Faster RCNN model by excluding target layers and losses
-    feature_node = find_by_name(model, "img_input")
-    conv_node = find_by_name(model, "conv5.y")
-    rpn_roi_node = find_by_name(model, "rpn_rois")
-    rpn_target_roi_node = find_by_name(model, "rpn_target_rois")
-    cls_score_node = find_by_name(model, "cls_score")
-    bbox_pred_node = find_by_name(model, "bbox_regr")
-
-    conv_rpn_layers = combine([conv_node.owner, rpn_roi_node.owner])\
-        .clone(CloneMethod.freeze, {feature_node: placeholder()})
-    roi_fc_layers = combine([cls_score_node.owner, bbox_pred_node.owner])\
-        .clone(CloneMethod.clone, {conv_node: placeholder(), rpn_target_roi_node: placeholder()})
-
-    conv_rpn_net = conv_rpn_layers(image_input)
-    conv_out = conv_rpn_net.outputs[0]
-    rpn_rois = conv_rpn_net.outputs[1]
-
-    pred_net = roi_fc_layers(conv_out, rpn_rois)
-    cls_score = pred_net.outputs[0]
-    bbox_regr = pred_net.outputs[1]
-
-    cls_pred = softmax(cls_score, axis=1, name='cls_pred')
-    frcn_eval = combine([cls_pred, rpn_rois, bbox_regr])
-
-    plot(conv_rpn_layers, os.path.join(abs_path, "graph_frcn_conv." + graph_type))
-    plot(roi_fc_layers, os.path.join(abs_path, "graph_frcn_roi." + graph_type))
-    plot(frcn_eval, os.path.join(abs_path, "graph_frcn_eval." + graph_type))
+    if debug_output:
+        plot(frcn_eval, os.path.join(abs_path, "graph_frcn_eval." + graph_type))
 
     test_minibatch_source = create_test_mb_source(image_height, image_width, num_channels, num_rois, base_path)
     input_map = {
@@ -359,4 +361,4 @@ if __name__ == '__main__':
         print("Stored trained model at %s" % model_path)
 
     # Evaluate the test set
-    eval_faster_rcnn(trained_model)
+    eval_faster_rcnn(trained_model, debug_output=True)
