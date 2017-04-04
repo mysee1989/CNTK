@@ -76,17 +76,18 @@ class ProposalTargetLayer(UserFunction):
         gt_boxes = bottom[1][0,:] #.data
 
         # For CNTK: convert and scale gt_box coords from x, y, w, h relative to x1, y1, x2, y2 absolute
-        whwh = (1000, 1000, 1000, 1000) # TODO: get image width and height OR better scale beforehand
+        im_width = 1000
+        im_height = 1000
+        whwh = (im_width, im_height, im_width, im_height) # TODO: get image width and height OR better scale beforehand
         ngtb = np.vstack((gt_boxes[:, 0], gt_boxes[:, 1], gt_boxes[:, 0] + gt_boxes[:, 2], gt_boxes[:, 1] + gt_boxes[:, 3]))
         gt_boxes[:, :-1] = ngtb.transpose() * whwh
 
         # remove zero padded ground truth boxes
-        keep = np.where((gt_boxes[:,0] - gt_boxes[:,2]) * (gt_boxes[:,1] - gt_boxes[:,3]) > 0)
+        keep = np.where((gt_boxes[:,2] - gt_boxes[:,0]) * (gt_boxes[:,3] - gt_boxes[:,1]) > 0)
         gt_boxes = gt_boxes[keep]
 
-        if gt_boxes.shape[0] < 1 or all_rois.shape[0] < 1:
-            print("Something is wrong: gt_boxes.shape={}, all_rois.shape={}".format(gt_boxes.shape, all_rois.shape))
-            import pdb; pdb.set_trace()
+        assert gt_boxes.shape[0] > 0, \
+            "No ground truth boxes provided"
 
         # Include ground-truth boxes in the set of candidate rois
         #zeros = np.zeros((gt_boxes.shape[0], 1), dtype=gt_boxes.dtype)
