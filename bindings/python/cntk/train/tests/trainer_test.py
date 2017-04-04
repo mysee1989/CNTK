@@ -8,6 +8,7 @@ import os
 import math
 import warnings
 import numpy as np
+import cntk as C
 from cntk import Value
 from cntk import Function
 from cntk import times, sequence, as_block, element_select
@@ -324,3 +325,35 @@ def test_empty_minibatch():
     lr_per_sample = learning_rate_schedule(0.1, UnitType.sample)
     trainer = Trainer(op, (op, None), sgd(op.parameters, lr_per_sample))
     trainer.train_minibatch({})
+
+
+def test_trainer_model_save_and_restore(tmpdir):
+    features = C.input(shape=(2,))
+    w = C.parameter(shape=(-1, 2), init=0.5)
+    z = C.times(features, w, name='z')
+
+    labels = C.input(shape=(2,))
+    ce = C.cross_entropy_with_softmax(z, labels, name='ce')
+    errs = C.classification_error(z, labels, name='errs')
+    lr_per_sample = C.learning_rate_schedule(0.007, UnitType.sample)
+    trainer1 = C.Trainer(None, (ce, errs), [C.sgd(z.parameters, lr_per_sample, True)])
+
+    ckp_file = str(tmpdir / 'checkpoint1.dat')
+    trainer1.save_checkpoint(ckp_file)
+    trainer1.restore_from_checkpoint(ckp_file)
+    loaded_model = C.Function.load(ckp_file)
+    assert loaded_model.find_by_name('ce')
+    assert loaded_model.find_by_name('errs')
+    assert loaded_model.find_by_name('z')
+
+    loaded_model = C.combine([z] + list(loaded_model.outputs))    
+    loaded_model.save(ckp_file)
+
+    trainer2 = C.Trainer(z, (ce, errs), [C.sgd(z.parameters, lr_per_sample, True)])
+    trainer2.restore_from_checkpoint(ckp_file)
+    trainer2.save_checkpoint(ckp_file)
+    trainer2.restore_from_checkpoint(ckp_file)
+    loaded_model = C.Function.load(ckp_file)
+    assert loaded_model.find_by_name('z')
+    assert loaded_model.find_by_name('ce') is None
+    assert loaded_model.find_by_name('errs') is None
