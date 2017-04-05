@@ -96,6 +96,7 @@
     <ClInclude Include="HTKChunkDescription.h" />
     <ClInclude Include="ConfigHelper.h" />
     <ClInclude Include="HTKDataDeserializer.h" />
+    <ClInclude Include="HTKFeaturesIO.h" />
     <ClInclude Include="HTKMLFReader.h" />
     <ClInclude Include="MLFDeserializer.h" />
     <ClInclude Include="MLFUtils.h" />

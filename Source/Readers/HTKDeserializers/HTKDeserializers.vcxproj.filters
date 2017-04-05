@@ -60,6 +60,9 @@
     <ClInclude Include="MLFDeserializer.h">
       <Filter>MLF</Filter>
     </ClInclude>
+    <ClInclude Include="HTKFeaturesIO.h">
+      <Filter>HTK</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Common">

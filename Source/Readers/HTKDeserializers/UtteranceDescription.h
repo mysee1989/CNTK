@@ -6,7 +6,7 @@
 #pragma once
 
 #include "DataDeserializer.h"
-#include "../HTKMLFReader/htkfeatio.h"
+#include "HTKFeaturesIO.h"
 
 namespace Microsoft { namespace MSR { namespace CNTK {
 
@@ -34,19 +34,9 @@ public:
         return m_path;
     }
 
-    void ClearLogicalPath()
-    {
-        m_path.ClearLogicalPath();
-    }
-
     size_t GetNumberOfFrames() const
     {
         return m_path.numframes();
-    }
-
-    string GetKey() const
-    {
-        return m_path.GetLogicalPath();
     }
 
     size_t GetId() const  { return m_id; }

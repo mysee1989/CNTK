@@ -104,7 +104,16 @@ void HTKDataDeserializer::InitializeAugmentationWindow(const std::pair<size_t, s
     // and the number of dimensions in the file.
     if (m_augmentationWindow.first == 0 && m_augmentationWindow.second == 0)
     {
-        m_augmentationWindow.first = m_augmentationWindow.second = msra::dbn::augmentationextent(m_ioFeatureDimension, m_dimension);
+        const size_t windowFrames = m_dimension / m_ioFeatureDimension; // total number of frames to generate
+        const size_t extent = windowFrames / 2;                         // extend each side by this
+
+        if (m_dimension % m_ioFeatureDimension != 0)
+            RuntimeError("HTKDataDeserializer: model vector size is not multiple of input features");
+
+        if (windowFrames % 2 == 0)
+            RuntimeError("HTKDataDeserializer: neighbor expansion of input features to '%zu' is not symmetrical", windowFrames);
+
+        m_augmentationWindow.first = m_augmentationWindow.second = extent;
     }
 }
 
@@ -114,32 +123,22 @@ void HTKDataDeserializer::InitializeChunkDescriptions(const vector<string>& path
     // Read utterance descriptions.
     vector<UtteranceDescription> utterances;
     utterances.reserve(paths.size());
-    size_t allUtterances = 0, allFrames = 0;
 
+    string key;
     for (const auto& u : paths)
     {
-        UtteranceDescription description(move(msra::asr::htkfeatreader::parsedpath(msra::strfun::utf16(u))));
+        key.clear();
+        UtteranceDescription description(msra::asr::htkfeatreader::parsedpath::Parse(u, key));
+
         size_t numberOfFrames = description.GetNumberOfFrames();
 
         if (m_expandToPrimary && numberOfFrames != 1)
-        {
-            RuntimeError("Expanded stream should only contain sequences of length 1, utterance '%s' has %d",
-                description.GetKey().c_str(),
-                (int)numberOfFrames);
-        }
+            RuntimeError("Expanded stream should only contain sequences of length 1, utterance '%s' has %zu",
+                key.c_str(),
+                numberOfFrames);
 
-        // For logging, also account for utterances and frames that we skip
-        allUtterances++;
-        allFrames += numberOfFrames;
-
-        string key = description.GetKey();
         if (!m_corpus->IsIncluded(key))
-        {
             continue;
-        }
-
-        // No need to store key, releasing it.
-        description.ClearLogicalPath();
 
         size_t id = m_corpus->KeyToId(key);
         description.SetId(id);
@@ -158,7 +157,6 @@ void HTKDataDeserializer::InitializeChunkDescriptions(const vector<string>& path
     // A chunk constitutes of 15 minutes
     const size_t ChunkFrames = 15 * 60 * FramesPerSec; // number of frames to target for each chunk
 
-    m_chunks.resize(0);
     m_chunks.reserve(m_totalNumberOfFrames / ChunkFrames);
 
     ChunkIdType chunkId = 0;
@@ -191,8 +189,8 @@ void HTKDataDeserializer::InitializeChunkDescriptions(const vector<string>& path
         m_chunks.size(),
         utterances.size() / (double)m_chunks.size(),
         m_totalNumberOfFrames / (double)m_chunks.size(),
-        allUtterances / (double)m_chunks.size(),
-        allFrames / (double)m_chunks.size());
+        utterances.size() / (double)m_chunks.size(),
+        m_totalNumberOfFrames / (double)m_chunks.size());
 
     if (utterances.empty())
     {

@@ -22,7 +22,6 @@
 #include <wchar.h>
 #include "simplesenonehmm.h"
 #include <array>
-#include "minibatchsourcehelpers.h"
 
 namespace msra { namespace asr {
 
@@ -357,7 +356,6 @@ public:
 
     protected:
         friend class htkfeatreader;
-        msra::strfun::cstring logicalpath; // virtual path that this file should be understood to belong to
 
     private:
         unsigned int archivePathIdx;
@@ -372,15 +370,16 @@ public:
         bool isarchive;      // true if archive (range specified)
         bool isidxformat;    // support reading of features in idxformat as well (it's a hack, but different format's are not supported yet)
         size_t s, e;         // first and last frame inside the archive file; (0, INT_MAX) if not given
-        void malformed(const wstring& path) const
+
+        static void malformed(const string& path)
         {
             RuntimeError("parsedpath: malformed path '%ls'", path.c_str());
         }
 
         // consume and return up to 'delim'; remove from 'input' (we try to avoid C++0x here for VS 2008 compat)
-        static wstring consume(wstring& input, const wchar_t* delim)
+        static string consume(string& input, const char* delim)
         {
-            vector<wstring> parts = msra::strfun::split(input, delim); // (not very efficient, but does not matter here)
+            vector<string> parts = msra::strfun::split(input, delim); // (not very efficient, but does not matter here)
             if (parts.size() == 1)
                 input.clear(); // not found: consume to end
             else
@@ -389,64 +388,70 @@ public:
         }
 
     public:
+        parsedpath()
+        {}
+
         // constructor parses a=b[s,e] syntax and fills in the file
         // Can be used implicitly e.g. by passing a string to open().
-        parsedpath(const wstring& pathParam)
-            : logicalpath("")
+        static parsedpath Parse(const string& pathParam, string& logicalPath)
         {
-            wstring xpath(pathParam);
-            wstring archivepath;
+            parsedpath result;
+
+            string xpath(pathParam);
+            string archivepath;
 
             // parse out logical path
-            wstring localLogicalpath = consume(xpath, L"=");
-            isidxformat = false;
+            logicalPath = consume(xpath, "=");
+            result.isidxformat = false;
             if (xpath.empty()) // no '=' detected: pass entire file (it's not an archive)
             {
-                archivepath = localLogicalpath;
-                s = 0;
-                e = INT_MAX;
-                isarchive = false;
+                archivepath = logicalPath;
+                result.s = 0;
+                result.e = INT_MAX;
+                result.isarchive = false;
                 // check for "-ubyte" suffix in path name => it is an idx file
-                wstring ubyte(L"-ubyte");
+                string ubyte("-ubyte");
                 size_t pos = archivepath.size() >= ubyte.size() ? archivepath.size() - ubyte.size() : 0;
-                wstring suffix = archivepath.substr(pos, ubyte.size());
-                isidxformat = ubyte == suffix;
+                string suffix = archivepath.substr(pos, ubyte.size());
+                result.isidxformat = ubyte == suffix;
             }
             else // a=b[s,e] syntax detected
             {
-                archivepath = consume(xpath, L"[");
+                archivepath = consume(xpath, "[");
                 if (xpath.empty()) // actually it's only a=b
                 {
-                    s = 0;
-                    e = INT_MAX;
-                    isarchive = false;
+                    result.s = 0;
+                    result.e = INT_MAX;
+                    result.isarchive = false;
                 }
                 else
                 {
-                    s = msra::strfun::toint(consume(xpath, L","));
+                    result.s = msra::strfun::toint(consume(xpath, ",").c_str());
                     if (xpath.empty())
                         malformed(pathParam);
-                    e = msra::strfun::toint(consume(xpath, L"]"));
+                    result.e = msra::strfun::toint(consume(xpath, "]").c_str());
                     // TODO \r should be handled elsewhere; refine this
-                    if (!xpath.empty() && xpath != L"\r")
+                    if (!xpath.empty() && xpath != "\r")
                         malformed(pathParam);
-                    isarchive = true;
+                    result.isarchive = true;
                 }
             }
 
-            auto iter = archivePathStringMap.find(archivepath);
+            auto warchivepath = msra::strfun::utf16(archivepath);
+            auto iter = archivePathStringMap.find(warchivepath);
             if (iter != archivePathStringMap.end())
             {
-                archivePathIdx = iter->second;
+                result.archivePathIdx = iter->second;
             }
             else
             {
-                archivePathIdx = (unsigned int)archivePathStringMap.size();
-                archivePathStringMap[archivepath] = archivePathIdx;
-                archivePathStringVector.push_back(archivepath);
+                result.archivePathIdx = (unsigned int)archivePathStringMap.size();
+                archivePathStringMap[warchivepath] = result.archivePathIdx;
+                archivePathStringVector.push_back(warchivepath);
             }
 
-            logicalpath = msra::strfun::utf8(localLogicalpath);
+            logicalPath = logicalPath.substr(0, logicalPath.find_last_of("."));
+            return result;
         }
 
         // get the physical path for 'make' test
@@ -454,26 +459,6 @@ public:
         {
             return archivepath();
         }
-
-        // Gets logical path of the utterance.
-        string GetLogicalPath() const
-        {
-            assert(!logicalpath.empty());
-            return logicalpath.substr(0, logicalpath.find_last_of("."));
-        }
-
-        // Clears logical path after parsing, in order not to duplicate it 
-        // with the one stored in the corpus descriptor.
-        void ClearLogicalPath()
-        {
-            logicalpath.clear();
-        }
-
-        // casting to wstring yields the logical path
-        //operator wstring() const
-        //{
-        //    return msra::strfun::utf16(logicalpath);
-        //}
 
         // get duration in frames
         size_t numframes() const
@@ -608,13 +593,6 @@ public:
     {
         addEnergy = false;
         energyElements = 0;
-    }
-
-    // helper to create a parsed-path object
-    // const auto path = parse (xpath)
-    parsedpath parse(const wstring& xpath)
-    {
-        return parsedpath(xpath);
     }
 
     // read a feature file
@@ -800,8 +778,8 @@ struct htkmlfentry
 {
     unsigned int firstframe; // range [firstframe,firstframe+numframes)
     unsigned int numframes;
-    msra::dbn::CLASSIDTYPE classid;  // numeric state id
-    msra::dbn::HMMIDTYPE phonestart; // numeric phone start  time
+    unsigned short classid;  // numeric state id
+    unsigned short phonestart; // numeric phone start  time
 
 private:
     // verify and save data
@@ -812,7 +790,7 @@ private:
         // save
         firstframe = (unsigned int) ts;
         numframes = (unsigned int) (te - ts);
-        classid = (msra::dbn::CLASSIDTYPE) uid;
+        classid = (unsigned short) uid;
         // check for numeric overflow
         if (firstframe != ts || firstframe + numframes != te || classid != uid)
             RuntimeError("htkmlfentry: not enough bits for one of the values");
@@ -860,7 +838,7 @@ public:
                 auto hmmiter = hmmnamehash.find(toks[4]);
                 if (hmmiter == hmmnamehash.end())
                     RuntimeError("htkmlfentry: hmm %s not found in hmmlist", toks[4]);
-                phonestart = (msra::dbn::HMMIDTYPE)(hmmiter->second + 1);
+                phonestart = (unsigned short)(hmmiter->second + 1);
 
                 // check for numeric overflow
                 if ((hmmiter->second + 1) != phonestart)
