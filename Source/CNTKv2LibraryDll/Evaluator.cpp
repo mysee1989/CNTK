@@ -130,14 +130,31 @@ namespace CNTK
             communicator->AggregateInPlace(values, communicator->Workers());
         }
 
-        UpdateTestProgress(result.second, result.first, computeDevice);
-        return result.second != 0;
+        bool hasData = (result.second != 0);
+        if (hasData)
+            UpdateTestProgress(result.second, result.first, computeDevice);
+
+        return hasData;
     }
 
     std::pair<ValuePtr, size_t> Evaluator::TestLocalMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, const DeviceDescriptor& computeDevice)
     {
         if (!m_aggregatedEvaluationFunction)
             InvalidArgument("Evaluator::TestMinibatch: Cannot test when no evaluation function was specified during construction.");
+
+        if (arguments.empty()) // Empty minibatch, return 0.
+        {
+            auto zeroValue = MakeSharedObject<Value>(
+                MakeSharedObject<NDArrayView>(
+                    m_aggregatedEvaluationFunction->Output().GetDataType(),
+                    m_aggregatedEvaluationFunction->Output().IsSparse() ? StorageFormat::SparseCSC : StorageFormat::Dense,
+                    m_aggregatedEvaluationFunction->Output().Shape(), computeDevice));
+            if(zeroValue->GetDataType() == DataType::Float)
+                zeroValue->Data()->SetValue(0.0f);
+            else
+                zeroValue->Data()->SetValue(0.0);
+            return std::make_pair(zeroValue, 0);
+        }
 
         std::unordered_map<Variable, ValuePtr> outputs = { { m_aggregatedEvaluationFunction, nullptr }, { m_testSampleCountVar, nullptr } };
         outputs.insert(outputsToFetch.begin(), outputsToFetch.end());

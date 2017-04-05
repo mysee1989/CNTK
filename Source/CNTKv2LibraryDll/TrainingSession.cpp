@@ -248,9 +248,12 @@ namespace CNTK
                 // TODO: it may be slow to rely on TestMinibatch to return error each time, since it may require transfer
                 // of error from the GPU each time, accumulatedError can be allocated on GPU
                 shouldCV = m_trainer->TestMinibatch(minibatch, errorAndCount, computeDevice, m_numberOfWorkers != 1);
-                accumulatedError += errorAndCount.first->AsScalar<double>();
-                totalNumberOfSamples += errorAndCount.second;
-                numberOfMinibatches++;
+                if (shouldCV)
+                {
+                    accumulatedError += errorAndCount.first->AsScalar<double>();
+                    totalNumberOfSamples += errorAndCount.second;
+                    numberOfMinibatches++;
+                }
             }
 
             m_cv.m_source->RestoreFromCheckpoint(checkpoint);
