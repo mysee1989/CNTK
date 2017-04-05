@@ -106,21 +106,32 @@ namespace CNTK
 
     double Evaluator::TestMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, const DeviceDescriptor& computeDevice)
     {
-        auto evalMinibatchValue = TestMinibatch(arguments, outputsToFetch, computeDevice, false);
+        std::pair<ValuePtr, size_t> evalMinibatchValue;
+        TestMinibatch(arguments, outputsToFetch, evalMinibatchValue, computeDevice, false);
         return evalMinibatchValue.first->AsScalar<double>() / evalMinibatchValue.second;
     }
 
-    std::pair<ValuePtr, size_t> Evaluator::TestMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, const DeviceDescriptor& computeDevice, bool distributed)
+    bool Evaluator::TestMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::pair<ValuePtr, size_t>& result, const DeviceDescriptor& computeDevice, bool distributed)
     {
         std::unordered_map<Variable, ValuePtr> outputsToFetch = {};
-        return TestMinibatch(arguments, outputsToFetch, computeDevice, distributed);
+        return TestMinibatch(arguments, outputsToFetch, result, computeDevice, distributed);
     }
 
-    std::pair<ValuePtr, size_t> Evaluator::TestMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, const DeviceDescriptor& computeDevice, bool distributed)
+    bool Evaluator::TestMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, std::pair<ValuePtr, size_t>& result, const DeviceDescriptor& computeDevice, bool distributed)
     {
+        result = TestLocalMinibatch(arguments, outputsToFetch, computeDevice);
         if (distributed)
-            RuntimeError("Currently distributed testing is not supported.");
-        return TestLocalMinibatch(arguments, outputsToFetch, computeDevice);
+        {
+            if (!outputsToFetch.empty())
+                RuntimeError("Custom outputs are not yet supported in a distributed mode.");
+
+            auto values = std::vector<NDArrayViewPtr>{ result.first->Data(), MakeSharedObject<NDArrayView>(NDShape{ 1 }, &result.second, 1, DeviceDescriptor::CPUDevice()) };
+            DistributedCommunicatorPtr communicator = MPICommunicator();
+            communicator->AggregateInPlace(values, communicator->Workers());
+        }
+
+        UpdateTestProgress(result.second, result.first, computeDevice);
+        return result.second != 0;
     }
 
     std::pair<ValuePtr, size_t> Evaluator::TestLocalMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, const DeviceDescriptor& computeDevice)
@@ -135,7 +146,6 @@ namespace CNTK
 
         const ValuePtr& aggregateEvalCriterionValue = outputs[m_aggregatedEvaluationFunction];
         auto sampleCount = GetSampleCount(m_testSampleCountVar, outputs[m_testSampleCountVar]);
-        UpdateTestProgress(sampleCount, aggregateEvalCriterionValue, computeDevice);
 
         // Copy back output values for requested variables only.
         for (auto& o : outputsToFetch)
