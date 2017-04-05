@@ -125,9 +125,12 @@ namespace CNTK
             if (!outputsToFetch.empty())
                 RuntimeError("Custom outputs are not yet supported in a distributed mode.");
 
-            auto values = std::vector<NDArrayViewPtr>{ result.first->Data(), MakeSharedObject<NDArrayView>(NDShape{ 1 }, &result.second, 1, DeviceDescriptor::CPUDevice()) };
+            double localSampleCount = static_cast<double>(result.second);
+
+            auto values = std::vector<NDArrayViewPtr>{ result.first->Data(), MakeSharedObject<NDArrayView>(NDShape{ 1 }, &localSampleCount, 1, DeviceDescriptor::CPUDevice()) };
             DistributedCommunicatorPtr communicator = MPICommunicator();
             communicator->AggregateInPlace(values, communicator->Workers());
+            result.second = static_cast<size_t>(localSampleCount);
         }
 
         bool hasData = (result.second != 0);
